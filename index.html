@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="referrer" content="no-referrer-when-downgrade">
+<title>直播间</title>
+<style>
+  html,body{margin:0;width:100%;height:100%;background:#0f1420;overflow:hidden}
+  #frame{display:block;width:100%;height:100%;border:0}
+  #tip{position:fixed;inset:0;z-index:9;display:grid;place-items:center;background:#0f1420;color:#9aa4b2;
+       font:15px/1.6 system-ui,-apple-system,"PingFang SC",sans-serif;transition:opacity .25s}
+  #tip.hide{opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<iframe id="frame" src="about:blank" referrerpolicy="origin" allowfullscreen></iframe>
+<div id="tip">正在进入直播间…</div>
+<script>
+(function(){
+  var ROOM_CODE = 'NKcQVJ';
+  var SHARE_KEY = 'EHhkBgcRUMQtPdbK';
+  /* 直播源候选：按顺序探测，取第一个可用的（换域名时把新域加到这里） */
+  var LIVE_BASES = ['https://huxiaofeng666.com', 'https://srtmsh.cn'];
+
+  var frame = document.getElementById('frame');
+  var tip = document.getElementById('tip');
+
+  /* 壳自身地址（去掉 query 与 hash），用于让直播间把分享链接指回壳 */
+  var SELF = location.origin + location.pathname.replace(/[^\/]*$/, '');
+
+  var params = new URLSearchParams(location.search);
+  var token = params.get('wx_token') || '';
+  var afterAuth = params.get('after_auth') || '';
+  if (token || afterAuth) {
+    params.delete('wx_token'); params.delete('after_auth');
+    var q = params.toString();
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
+  }
+
+  function probe(base) {
+    return new Promise(function(resolve){
+      var ctl = new AbortController();
+      var t = setTimeout(function(){ ctl.abort(); }, 4000);
+      fetch(base + '/api/public/room/' + encodeURIComponent(ROOM_CODE) + '?k=' + encodeURIComponent(SHARE_KEY),
+            {signal: ctl.signal, cache: 'no-store'})
+        .then(function(r){ clearTimeout(t); resolve(r.ok ? base : null); })
+        .catch(function(){ clearTimeout(t); resolve(null); });
+    });
+  }
+  function pickBase(i) {
+    if (i >= LIVE_BASES.length) return Promise.resolve(LIVE_BASES[0]);
+    return probe(LIVE_BASES[i]).then(function(b){ return b || pickBase(i + 1); });
+  }
+
+  pickBase(0).then(function(base){
+    var src = base + '/r/' + encodeURIComponent(ROOM_CODE) + '?k=' + encodeURIComponent(SHARE_KEY);
+    if (token) src += '&wx_token=' + encodeURIComponent(token);
+    if (afterAuth) src += '&after_auth=' + encodeURIComponent(afterAuth);
+    src += '&shell=' + encodeURIComponent(SELF);
+    frame.src = src;
+  });
+
+  frame.addEventListener('load', function(){ setTimeout(function(){ tip.classList.add('hide'); }, 250); });
+  setTimeout(function(){ tip.classList.add('hide'); }, 6000);
+
+  window.addEventListener('message', function(ev){
+    var d = ev.data || {};
+
+    /* 登录：微信授权页在 iframe 内渲染不了，必须顶层窗口执行 */
+    if (d.type === 'wx-auth-please' && d.authUrl) {
+      try {
+        var u = new URL(d.authUrl);
+        var ret = SELF;
+        if (d.action) ret += '?after_auth=' + encodeURIComponent(d.action);
+        u.searchParams.set('ret', ret);
+        location.href = u.toString();
+      } catch (e) { location.href = d.authUrl; }
+      return;
+    }
+
+    /* 支付：iframe 内没有 WeixinJSBridge，收银台必须顶层打开 */
+    if (d.type === 'wx-pay-please' && d.url) {
+      try {
+        var u2 = new URL(d.url, location.origin);
+        u2.searchParams.set('ret', SELF);
+        location.href = u2.toString();
+      } catch (e) { location.href = d.url; }
+      return;
+    }
+  });
+})();
+</script>
+</body>
+</html>
