@@ -44,7 +44,14 @@
       var t = setTimeout(function(){ ctl.abort(); }, 4000);
       fetch(base + '/api/public/room/' + encodeURIComponent(ROOM_CODE) + '?k=' + encodeURIComponent(SHARE_KEY),
             {signal: ctl.signal, cache: 'no-store'})
-        .then(function(r){ clearTimeout(t); resolve(r.ok ? base : null); })
+        .then(function(r){
+          if (!r.ok) throw new Error('http_' + r.status);
+          return r.json();            /* 必须是 JSON，挡住营销站这类全路径 200 的站点 */
+        })
+        .then(function(j){
+          clearTimeout(t);
+          resolve(j && (j.room_code || j.name || j.id) ? base : null);
+        })
         .catch(function(){ clearTimeout(t); resolve(null); });
     });
   }
